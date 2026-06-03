@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 280px;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px;
+      color: #333;
+    }
+    h1 {
+      font-size: 16px;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .icon {
+      width: 20px;
+      height: 20px;
+    }
+    .stats {
+      background: #f5f5f5;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+    }
+    .stats-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+    .stats-row:last-child { margin-bottom: 0; }
+    .stats-label { color: #666; }
+    .stats-value { font-weight: 600; color: #333; }
+
+    .actions {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    button {
+      padding: 10px 14px;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    button.primary {
+      background: #667eea;
+      color: #fff;
+    }
+    button.primary:hover {
+      background: #5a6fd6;
+    }
+    button.secondary {
+      background: #f0f0f0;
+      color: #333;
+    }
+    button.secondary:hover {
+      background: #e0e0e0;
+    }
+    .tip {
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid #eee;
+      color: #888;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+    .status {
+      display: none;
+      margin-top: 8px;
+      padding: 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      text-align: center;
+    }
+    .status.success {
+      display: block;
+      background: #e6f4ea;
+      color: #1e8e3e;
+    }
+    .status.error {
+      display: block;
+      background: #fce8e6;
+      color: #d93025;
+    }
+  </style>
+</head>
+<body>
+  <h1>
+    <svg class="icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="16" height="16" rx="3" fill="#667eea"/>
+      <path d="M4 11V5l4 3 4-3v6H4z" stroke="#fff" stroke-width="1.2" fill="none"/>
+      <circle cx="8" cy="6" r="1.5" fill="#fff"/>
+    </svg>
+    图片预览下载器
+  </h1>
+
+  <div class="stats">
+    <div class="stats-row">
+      <span class="stats-label">当前页面图片</span>
+      <span class="stats-value" id="img-count">-</span>
+    </div>
+    <div class="stats-row">
+      <span class="stats-label">已选择</span>
+      <span class="stats-value" id="sel-count">-</span>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="primary" id="btn-refresh">刷新检测</button>
+    <button class="secondary" id="btn-options">设置</button>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <div class="tip">
+    提示：在 Google 图片搜索结果页，鼠标悬停图片会显示预览和下载按钮。
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

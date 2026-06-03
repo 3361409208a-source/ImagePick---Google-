@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "ImagePick - Google 图片批量下载器",
+  "version": "1.0.0",
+  "description": "Google 图片搜索结果预览与批量下载工具",
+  "permissions": ["downloads", "storage", "scripting", "activeTab"],
+  "host_permissions": ["https://www.google.com/*", "https://www.google.com.hk/*"],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.google.com/search*",
+        "https://www.google.com.hk/search*",
+        "https://www.google.com/imgres*",
+        "https://www.google.com.hk/imgres*"
+      ],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_end"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "图片预览下载"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/*"],
+      "matches": ["https://www.google.com/*", "https://www.google.com.hk/*"]
+    }
+  ]
+}
