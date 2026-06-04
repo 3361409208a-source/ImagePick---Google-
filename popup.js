@@ -6,12 +6,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       const [{ result }] = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
         func: () => {
-          const state = window.__gidState || { images: [] };
-          return { images: state.images?.length || 0 };
+          const state = window.__gidState || { images: [], selected: new Set() };
+          return {
+            images: state.images?.length || 0,
+            selected: state.selected?.size || 0
+          };
         }
       });
       document.getElementById('img-count').textContent = result?.images ?? '-';
-      document.getElementById('sel-count').textContent = '-';
+      document.getElementById('sel-count').textContent = result?.selected ?? '-';
     } catch (e) {
       document.getElementById('img-count').textContent = '-';
       document.getElementById('sel-count').textContent = '-';
@@ -35,15 +38,15 @@ document.addEventListener('DOMContentLoaded', async () => {
           }
         }
       });
-      showStatus('刷新成功', 'success');
+      showStatus('reload complete', 'success');
       await getCounts();
     } catch (e) {
-      showStatus('刷新失败，请确保在 Google 页面', 'error');
+      showStatus('reload fail, please ensure you are on Google page', 'error');
     }
   });
 
   document.getElementById('btn-options').addEventListener('click', () => {
-    showStatus('设置功能开发中', 'success');
+    showStatus('settings are under development', 'success');
   });
 
   getCounts();

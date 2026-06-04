@@ -158,10 +158,15 @@
   position: relative;
   border-radius: 8px;
   overflow: hidden;
-  border: 1px solid #e8e8e8;
+  border: 2px solid #e8e8e8;
   cursor: pointer;
   background: #fafafa;
   aspect-ratio: 1;
+  transition: border-color 0.15s;
+}
+
+.google-image-downloader-gallery-item.selected {
+  border-color: #667eea;
 }
 
 .google-image-downloader-gallery-item img {
@@ -169,6 +174,31 @@
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+.google-image-downloader-gallery-check {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #667eea;
+  color: #fff;
+  font-size: 12px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 4;
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.google-image-downloader-gallery-item.selected .google-image-downloader-gallery-check {
+  opacity: 1;
+  transform: scale(1);
 }
 
 .google-image-downloader-gallery-caption {
@@ -354,6 +384,12 @@
   .google-image-downloader-gallery-item {
     border-color: #333;
     background: #252525;
+  }
+  .google-image-downloader-gallery-item.selected {
+    border-color: #7c8cf8;
+  }
+  .google-image-downloader-gallery-check {
+    background: #7c8cf8;
   }
   .google-image-downloader-gallery-caption {
     background: rgba(0,0,0,0.7);

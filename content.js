@@ -3,7 +3,7 @@
   const ICON_PREVIEW = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z"/><path d="M0 8s3-5.5 8-5.5S16 8 16 8s-3 5.5-8 5.5S0 8 0 8zm8 3.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z"/></svg>`;
   const ICON_DOWNLOAD = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/></svg>`;
 
-  const state = { images: [], processed: new WeakSet(), panelOpen: false };
+  const state = { images: [], selected: new Set(), processed: new WeakSet(), panelOpen: false };
 
   function createEl(tag, cls, html) {
     const el = document.createElement(tag);
@@ -29,56 +29,39 @@
     return true;
   }
 
-  // ========== 判断文本是否是人名（不是位置/国家/垃圾） ==========
   function isValidName(text) {
     if (!text || text.length < 2 || text.length > 35) return false;
     const t = text.trim();
-    // 排除位置词
     if (/^(前锋|中场|后卫|守门员|主教练|教练|球员|后卫|左边锋|右边锋|中锋)$/.test(t)) return false;
-    // 排除纯数字
     if (/^\d+$/.test(t)) return false;
-    // 排除纯emoji
     if (/^[\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1F9FF}\s]+$/u.test(t)) return false;
-    // 排除明显不是人名的
     if (/logo|team|goog|搜索|更多|结果|FIFA|World Cup|国际足协|世足|世界杯|2026/i.test(t)) return false;
     return true;
   }
 
-  // ========== 从球员卡片提取名字 ==========
   function extractName(img) {
-    // 1. alt / aria-label 最优先
     const alt = img.alt || img.getAttribute('aria-label') || '';
     if (isValidName(alt)) return sanitizeFilename(alt.trim());
 
-    // 2. 找到球员卡片容器（Google 知识面板通常是 role="listitem"）
     let card = img.closest('[role="listitem"]');
     if (!card) {
-      // fallback：找包含当前 img 且包含文字的最小 div
       let node = img.parentElement;
       while (node && node !== document.body) {
-        if (node.children.length >= 2 && node.textContent.trim().length > 5) {
-          card = node;
-          break;
-        }
+        if (node.children.length >= 2 && node.textContent.trim().length > 5) { card = node; break; }
         node = node.parentElement;
       }
     }
-
     if (card) {
-      // 遍历卡片的直接子元素，排除包含图片的，找文字容器
       for (const child of card.children) {
         if (child.contains(img) || child.querySelector('img')) continue;
         const text = child.textContent.trim();
         if (!text) continue;
-        // 按行分割，取第一个像人名的
         const lines = text.split(/\n+/).map(l => l.trim()).filter(Boolean);
         for (const line of lines) {
           if (isValidName(line)) return sanitizeFilename(line);
         }
       }
     }
-
-    // 3. fallback：img 父元素的相邻兄弟
     const parent = img.parentElement;
     if (parent) {
       const sibling = parent.nextElementSibling;
@@ -89,10 +72,7 @@
         }
       }
     }
-
-    // 4. 最后 fallback：img 的 title
     if (img.title && isValidName(img.title)) return sanitizeFilename(img.title.trim());
-
     return '';
   }
 
@@ -110,7 +90,6 @@
       if (/google.*\/(x|favicon|logo|icon)\b|google[\w]*logo|gstatic/i.test(src)) return;
       if (!isPortraitImage(img)) { state.processed.add(img); return; }
 
-      // 提取高清原图
       let highRes = src;
       const anyA = img.closest('a');
       if (anyA && anyA.href) {
@@ -125,7 +104,6 @@
         const last = parts[parts.length - 1].trim().split(' ')[0];
         if (last && last.startsWith('http')) highRes = last;
       }
-
       if (state.images.find(i => i.src === highRes)) { state.processed.add(img); return; }
 
       const caption = extractName(img);
@@ -201,7 +179,7 @@
     if (overlay) { overlay.classList.remove('active'); document.body.style.overflow = ''; }
   }
 
-  // ========== 下载 ==========
+  // ========== 下载（统一走 chrome.downloads API） ==========
   function getExt(src) {
     if (src.startsWith('data:image/png')) return 'png';
     if (src.startsWith('data:image/jpeg') || src.startsWith('data:image/jpg')) return 'jpg';
@@ -211,34 +189,32 @@
     return ['jpg','jpeg','png','gif','webp'].includes(ext) ? ext : 'jpg';
   }
 
-  function downloadImage(src, caption) {
-    const ext = getExt(src);
-    const name = caption ? `${caption}.${ext}` : `image_${Date.now()}.${ext}`;
-
-    if (src.startsWith('data:')) {
-      const a = document.createElement('a'); a.href = src; a.download = name;
-      document.body.appendChild(a); a.click(); a.remove(); return;
-    }
-    const img = new Image(); img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      try {
-        const cvs = document.createElement('canvas');
-        cvs.width = img.naturalWidth || img.width;
-        cvs.height = img.naturalHeight || img.height;
-        cvs.getContext('2d').drawImage(img, 0, 0);
-        const a = document.createElement('a');
-        a.href = cvs.toDataURL('image/png');
-        a.download = name.replace(/\.[^.]+$/, '.png');
-        document.body.appendChild(a); a.click(); a.remove();
-      } catch (e) { fallbackDownload(src, name); }
-    };
-    img.onerror = () => fallbackDownload(src, name);
-    img.src = src;
-  }
-
-  function fallbackDownload(src, filename) {
-    try { chrome.runtime.sendMessage({ action: 'download', url: src, filename }); }
-    catch { window.open(src, '_blank'); }
+  function downloadImage(src, caption, delay) {
+    const d = delay || 0;
+    setTimeout(() => {
+      const name = caption ? `${caption}.${getExt(src)}` : `image_${Date.now()}.${getExt(src)}`;
+      if (src.startsWith('data:')) {
+        chrome.runtime.sendMessage({ action: 'download', url: src, filename: name });
+      } else {
+        const img = new Image(); img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          try {
+            const cvs = document.createElement('canvas');
+            cvs.width = img.naturalWidth || img.width;
+            cvs.height = img.naturalHeight || img.height;
+            cvs.getContext('2d').drawImage(img, 0, 0);
+            const dataUrl = cvs.toDataURL('image/png');
+            chrome.runtime.sendMessage({ action: 'download', url: dataUrl, filename: name.replace(/\.[^.]+$/, '.png') });
+          } catch (e) {
+            chrome.runtime.sendMessage({ action: 'download', url: src, filename: name });
+          }
+        };
+        img.onerror = () => {
+          chrome.runtime.sendMessage({ action: 'download', url: src, filename: name });
+        };
+        img.src = src;
+      }
+    }, d);
   }
 
   // ========== 触发按钮 ==========
@@ -264,11 +240,14 @@
         </div>
         <div class="${GID}-panel-body">
           <div class="${GID}-stats">
-            检测到 <strong id="${GID}-count">0</strong> 张图片
+            检测到 <strong id="${GID}-count">0</strong> 张图片 |
+            已选 <strong id="${GID}-sel-count">0</strong> 张
           </div>
           <div class="${GID}-actions">
             <button class="${GID}-btn ${GID}-btn-primary" id="${GID}-refresh">刷新</button>
-            <button class="${GID}-btn ${GID}-btn-download" id="${GID}-batch-download">全部下载</button>
+            <button class="${GID}-btn ${GID}-btn-primary" id="${GID}-select-all">全选</button>
+            <button class="${GID}-btn ${GID}-btn-primary" id="${GID}-clear">清空</button>
+            <button class="${GID}-btn ${GID}-btn-download" id="${GID}-batch-download">下载选中</button>
           </div>
           <div class="${GID}-gallery" id="${GID}-gallery"></div>
         </div>
@@ -278,6 +257,15 @@
 
       panel.querySelector(`.${GID}-panel-close`).addEventListener('click', e => { e.stopPropagation(); closePanel(); });
       panel.querySelector(`#${GID}-refresh`).addEventListener('click', () => { scanAndInject([document.body]); });
+
+      panel.querySelector(`#${GID}-select-all`).addEventListener('click', () => {
+        state.images.forEach((_, i) => state.selected.add(i));
+        updatePanel();
+      });
+      panel.querySelector(`#${GID}-clear`).addEventListener('click', () => {
+        state.selected.clear();
+        updatePanel();
+      });
       panel.querySelector(`#${GID}-batch-download`).addEventListener('click', batchDownload);
     }
 
@@ -298,8 +286,10 @@
 
   function updatePanel() {
     const countEl = document.getElementById(`${GID}-count`);
+    const selEl = document.getElementById(`${GID}-sel-count`);
     const gallery = document.getElementById(`${GID}-gallery`);
     if (countEl) countEl.textContent = state.images.length;
+    if (selEl) selEl.textContent = state.selected.size;
 
     if (!gallery) return;
     if (!state.images.length) {
@@ -308,7 +298,8 @@
     }
 
     gallery.innerHTML = state.images.map((img, idx) => `
-      <div class="${GID}-gallery-item" data-idx="${idx}">
+      <div class="${GID}-gallery-item ${state.selected.has(idx) ? 'selected' : ''}" data-idx="${idx}">
+        <div class="${GID}-gallery-check">✓</div>
         <img src="${img.thumb}" alt="${escapeHtml(img.caption || img.alt)}" loading="lazy">
         ${img.caption ? `<div class="${GID}-gallery-caption" title="${escapeHtml(img.caption)}">${escapeHtml(img.caption)}</div>` : ''}
         <div class="${GID}-gallery-overlay">
@@ -318,15 +309,21 @@
       </div>
     `).join('');
 
+    // 点击整张卡片 = 切换选中状态
     gallery.querySelectorAll(`.${GID}-gallery-item`).forEach(item => {
       item.addEventListener('click', e => {
-        if (e.target.closest(`.${GID}-gallery-btn`)) return;
+        if (e.target.closest(`.${GID}-gallery-btn`)) return; // 按钮不触发选中
         const idx = +item.dataset.idx;
-        const img = state.images[idx];
-        if (img) openPreview(img.src);
+        if (state.selected.has(idx)) {
+          state.selected.delete(idx);
+        } else {
+          state.selected.add(idx);
+        }
+        updatePanel();
       });
     });
 
+    // 悬浮按钮：预览/下载单张
     gallery.querySelectorAll(`.${GID}-gallery-btn`).forEach(btn => {
       btn.addEventListener('click', e => {
         e.stopPropagation();
@@ -334,15 +331,20 @@
         const src = btn.dataset.src;
         const caption = btn.dataset.caption || '';
         if (action === 'preview') openPreview(src);
-        else if (action === 'download') downloadImage(src, caption);
+        else if (action === 'download') downloadImage(src, caption, 0);
       });
     });
   }
 
   function batchDownload() {
-    if (!state.images.length) { alert('未检测到图片'); return; }
+    if (!state.selected.size) { alert('请先选择图片'); return; }
     let delay = 0;
-    state.images.forEach(img => { setTimeout(() => downloadImage(img.src, img.caption), delay); delay += 300; });
+    const indices = [...state.selected].sort((a, b) => a - b);
+    indices.forEach(idx => {
+      const img = state.images[idx];
+      if (img) downloadImage(img.src, img.caption, delay);
+      delay += 400;
+    });
   }
 
   // ========== 页面悬浮工具栏点击代理 ==========
@@ -356,7 +358,7 @@
     if (action === 'preview') {
       e.preventDefault(); e.stopPropagation(); openPreview(src);
     } else if (action === 'download') {
-      e.preventDefault(); e.stopPropagation(); downloadImage(src, caption);
+      e.preventDefault(); e.stopPropagation(); downloadImage(src, caption, 0);
     } else if (action === 'close') {
       e.preventDefault(); closePreview();
     }
