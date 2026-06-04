@@ -152,8 +152,58 @@
     }
   }
 
+  // ========== 图片处理状态 ==========
+  let previewState = null; // { src, rotation:0|90|180|270, flipH:bool, flipV:bool, format:'png'|'jpg'|'webp' }
+
+  function resetPreviewState(src) {
+    previewState = { src, rotation: 0, flipH: false, flipV: false, format: 'png' };
+  }
+
+  function getProcessedDataURL() {
+    if (!previewState) return null;
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        const cvs = document.createElement('canvas');
+        const ctx = cvs.getContext('2d');
+        let w = img.naturalWidth || img.width;
+        let h = img.naturalHeight || img.height;
+
+        if (previewState.rotation === 90 || previewState.rotation === 270) {
+          cvs.width = h; cvs.height = w;
+        } else {
+          cvs.width = w; cvs.height = h;
+        }
+
+        ctx.save();
+        ctx.translate(cvs.width / 2, cvs.height / 2);
+        ctx.rotate((previewState.rotation * Math.PI) / 180);
+        ctx.scale(previewState.flipH ? -1 : 1, previewState.flipV ? -1 : 1);
+        ctx.drawImage(img, -w / 2, -h / 2, w, h);
+        ctx.restore();
+
+        let mime = 'image/png';
+        let quality;
+        if (previewState.format === 'jpg') { mime = 'image/jpeg'; quality = 0.92; }
+        else if (previewState.format === 'webp') { mime = 'image/webp'; quality = 0.92; }
+        resolve(cvs.toDataURL(mime, quality));
+      };
+      img.onerror = () => resolve(previewState.src);
+      img.src = previewState.src;
+    });
+  }
+
+  async function refreshPreviewImg() {
+    const imgEl = document.getElementById(`${GID}-pv-img`);
+    if (!imgEl || !previewState) return;
+    imgEl.src = await getProcessedDataURL();
+  }
+
   // ========== 预览 ==========
   function openPreview(src) {
+    resetPreviewState(src);
+
     let overlay = document.getElementById(`${GID}-overlay`);
     if (!overlay) {
       overlay = createEl('div', `${GID}-overlay`);
@@ -161,18 +211,80 @@
       overlay.addEventListener('click', e => { if (e.target === overlay) closePreview(); });
       document.body.appendChild(overlay);
     }
+
     overlay.innerHTML = `
       <div class="${GID}-modal">
-        <img src="${src}" alt="preview" />
+        <div class="${GID}-pv-img-wrap">
+          <img id="${GID}-pv-img" src="${src}" alt="preview" />
+        </div>
+        <div class="${GID}-pv-toolbar">
+          <button class="${GID}-pv-tool-btn" data-action="rotate-left" title="左旋 90°">↺</button>
+          <button class="${GID}-pv-tool-btn" data-action="rotate-right" title="右旋 90°">↻</button>
+          <button class="${GID}-pv-tool-btn" data-action="flip-h" title="水平翻转">↔</button>
+          <button class="${GID}-pv-tool-btn" data-action="flip-v" title="垂直翻转">↕</button>
+          <select class="${GID}-pv-format" id="${GID}-pv-format">
+            <option value="png">PNG</option>
+            <option value="jpg">JPG</option>
+            <option value="webp">WebP</option>
+          </select>
+        </div>
         <div class="${GID}-modal-actions">
-          <button class="${GID}-btn ${GID}-btn-download" data-action="download" data-src="${src}">${ICON_DOWNLOAD} 下载原图</button>
-          <button class="${GID}-btn ${GID}-btn-secondary" data-action="saveas" data-src="${src}">另存为...</button>
+          <button class="${GID}-btn ${GID}-btn-accent" id="${GID}-pv-download-processed" data-action="download-processed">下载处理图</button>
+          <button class="${GID}-btn ${GID}-btn-download" data-action="download" data-src="${src}">下载原图</button>
+          <button class="${GID}-btn ${GID}-btn-secondary" id="${GID}-pv-saveas" data-action="saveas-processed">另存为...</button>
           <button class="${GID}-btn ${GID}-btn-close" data-action="close">关闭</button>
         </div>
       </div>
     `;
     overlay.classList.add('active');
     document.body.style.overflow = 'hidden';
+
+    // 处理工具栏事件
+    const toolbar = overlay.querySelector(`.${GID}-pv-toolbar`);
+    if (toolbar) {
+      toolbar.addEventListener('click', async e => {
+        const btn = e.target.closest(`.${GID}-pv-tool-btn`);
+        if (!btn || !previewState) return;
+        const act = btn.dataset.action;
+        if (act === 'rotate-left') previewState.rotation = (previewState.rotation + 270) % 360;
+        else if (act === 'rotate-right') previewState.rotation = (previewState.rotation + 90) % 360;
+        else if (act === 'flip-h') previewState.flipH = !previewState.flipH;
+        else if (act === 'flip-v') previewState.flipV = !previewState.flipV;
+        await refreshPreviewImg();
+      });
+    }
+
+    // 格式选择
+    const fmtSelect = document.getElementById(`${GID}-pv-format`);
+    if (fmtSelect) {
+      fmtSelect.addEventListener('change', async () => {
+        if (!previewState) return;
+        previewState.format = fmtSelect.value;
+        await refreshPreviewImg();
+      });
+    }
+
+    // 下载处理图
+    const dlBtn = document.getElementById(`${GID}-pv-download-processed`);
+    if (dlBtn) {
+      dlBtn.addEventListener('click', async () => {
+        const dataUrl = await getProcessedDataURL();
+        const ext = previewState.format;
+        const name = `image_${Date.now()}.${ext}`;
+        chrome.runtime.sendMessage({ action: 'download', url: dataUrl, filename: name });
+      });
+    }
+
+    // 另存为处理图
+    const svBtn = document.getElementById(`${GID}-pv-saveas`);
+    if (svBtn) {
+      svBtn.addEventListener('click', async () => {
+        const dataUrl = await getProcessedDataURL();
+        const ext = previewState.format;
+        const name = `image_${Date.now()}.${ext}`;
+        chrome.runtime.sendMessage({ action: 'download', url: dataUrl, filename: name, saveAs: true });
+      });
+    }
   }
 
   function closePreview() {
