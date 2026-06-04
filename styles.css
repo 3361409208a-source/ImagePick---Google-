@@ -147,6 +147,28 @@
   background: #5a6fd6;
 }
 
+.google-image-downloader-btn-secondary {
+  background: #6c757d;
+  color: #fff;
+}
+.google-image-downloader-btn-secondary:hover {
+  background: #5a6268;
+}
+
+.google-image-downloader-btn-accent {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  color: #fff;
+}
+.google-image-downloader-btn-accent:hover {
+  background: linear-gradient(135deg, #e082ea 0%, #e44d61 100%);
+}
+
+.google-image-downloader-zip-status {
+  color: #f5576c;
+  font-weight: 600;
+  margin-left: 4px;
+}
+
 /* ========== Gallery Grid ========== */
 .google-image-downloader-gallery {
   display: grid;
@@ -380,6 +402,13 @@
   }
   .google-image-downloader-btn-primary:hover {
     background: #444;
+  }
+  .google-image-downloader-btn-secondary {
+    background: #444;
+    color: #e0e0e0;
+  }
+  .google-image-downloader-btn-secondary:hover {
+    background: #555;
   }
   .google-image-downloader-gallery-item {
     border-color: #333;

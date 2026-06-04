@@ -20,7 +20,7 @@
     return name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim().replace(/\s+/g, ' ');
   }
 
-  // ========== 判断是否是人物头像 ==========
+  // ========== 判断人物头像 ==========
   function isPortraitImage(img) {
     const w = img.naturalWidth || img.width || img.clientWidth;
     const h = img.naturalHeight || img.height || img.clientHeight;
@@ -32,7 +32,7 @@
   function isValidName(text) {
     if (!text || text.length < 2 || text.length > 35) return false;
     const t = text.trim();
-    if (/^(前锋|中场|后卫|守门员|主教练|教练|球员|后卫|左边锋|右边锋|中锋)$/.test(t)) return false;
+    if (/^(前锋|中场|后卫|守门员|主教练|教练|球员|左边锋|右边锋|中锋)$/.test(t)) return false;
     if (/^\d+$/.test(t)) return false;
     if (/^[\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1F9FF}\s]+$/u.test(t)) return false;
     if (/logo|team|goog|搜索|更多|结果|FIFA|World Cup|国际足协|世足|世界杯|2026/i.test(t)) return false;
@@ -166,6 +166,7 @@
         <img src="${src}" alt="preview" />
         <div class="${GID}-modal-actions">
           <button class="${GID}-btn ${GID}-btn-download" data-action="download" data-src="${src}">${ICON_DOWNLOAD} 下载原图</button>
+          <button class="${GID}-btn ${GID}-btn-secondary" data-action="saveas" data-src="${src}">另存为...</button>
           <button class="${GID}-btn ${GID}-btn-close" data-action="close">关闭</button>
         </div>
       </div>
@@ -179,7 +180,7 @@
     if (overlay) { overlay.classList.remove('active'); document.body.style.overflow = ''; }
   }
 
-  // ========== 下载（统一走 chrome.downloads API） ==========
+  // ========== 下载 ==========
   function getExt(src) {
     if (src.startsWith('data:image/png')) return 'png';
     if (src.startsWith('data:image/jpeg') || src.startsWith('data:image/jpg')) return 'jpg';
@@ -189,32 +190,108 @@
     return ['jpg','jpeg','png','gif','webp'].includes(ext) ? ext : 'jpg';
   }
 
-  function downloadImage(src, caption, delay) {
-    const d = delay || 0;
-    setTimeout(() => {
-      const name = caption ? `${caption}.${getExt(src)}` : `image_${Date.now()}.${getExt(src)}`;
-      if (src.startsWith('data:')) {
-        chrome.runtime.sendMessage({ action: 'download', url: src, filename: name });
-      } else {
-        const img = new Image(); img.crossOrigin = 'anonymous';
-        img.onload = () => {
-          try {
-            const cvs = document.createElement('canvas');
-            cvs.width = img.naturalWidth || img.width;
-            cvs.height = img.naturalHeight || img.height;
-            cvs.getContext('2d').drawImage(img, 0, 0);
-            const dataUrl = cvs.toDataURL('image/png');
-            chrome.runtime.sendMessage({ action: 'download', url: dataUrl, filename: name.replace(/\.[^.]+$/, '.png') });
-          } catch (e) {
-            chrome.runtime.sendMessage({ action: 'download', url: src, filename: name });
-          }
-        };
-        img.onerror = () => {
-          chrome.runtime.sendMessage({ action: 'download', url: src, filename: name });
-        };
-        img.src = src;
+  function downloadViaChrome(src, name, saveAs) {
+    if (src.startsWith('data:')) {
+      chrome.runtime.sendMessage({ action: 'download', url: src, filename: name, saveAs: !!saveAs });
+      return;
+    }
+    const img = new Image(); img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const cvs = document.createElement('canvas');
+        cvs.width = img.naturalWidth || img.width;
+        cvs.height = img.naturalHeight || img.height;
+        cvs.getContext('2d').drawImage(img, 0, 0);
+        chrome.runtime.sendMessage({ action: 'download', url: cvs.toDataURL('image/png'), filename: name.replace(/\.[^.]+$/, '.png'), saveAs: !!saveAs });
+      } catch (e) {
+        chrome.runtime.sendMessage({ action: 'download', url: src, filename: name, saveAs: !!saveAs });
       }
-    }, d);
+    };
+    img.onerror = () => { chrome.runtime.sendMessage({ action: 'download', url: src, filename: name, saveAs: !!saveAs }); };
+    img.src = src;
+  }
+
+  function downloadImage(src, caption, saveAs) {
+    const name = caption ? `${caption}.${getExt(src)}` : `image_${Date.now()}.${getExt(src)}`;
+    downloadViaChrome(src, name, saveAs);
+  }
+
+  // ========== data URL -> Blob ==========
+  function dataURLToBlob(dataUrl) {
+    const parts = dataUrl.split(',');
+    const mime = parts[0].match(/:(.*?);/)[1];
+    const bytes = atob(parts[1]);
+    const arr = new Uint8Array(bytes.length);
+    for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+    return new Blob([arr], { type: mime });
+  }
+
+  // ========== fetch 图片为 Blob ==========
+  function fetchImageAsBlob(src) {
+    if (src.startsWith('data:')) {
+      return Promise.resolve(dataURLToBlob(src));
+    }
+    return new Promise((resolve, reject) => {
+      const img = new Image(); img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        try {
+          const cvs = document.createElement('canvas');
+          cvs.width = img.naturalWidth || img.width;
+          cvs.height = img.naturalHeight || img.height;
+          cvs.getContext('2d').drawImage(img, 0, 0);
+          cvs.toBlob(blob => resolve(blob), 'image/png');
+        } catch (e) { reject(e); }
+      };
+      img.onerror = () => {
+        fetch(src, { mode: 'no-cors' }).then(r => r.blob()).then(resolve).catch(reject);
+      };
+      img.src = src;
+    });
+  }
+
+  // ========== 打包下载 ==========
+  async function packageDownload() {
+    if (!state.selected.size) { alert('请先选择图片'); return; }
+
+    const statusEl = document.getElementById(`${GID}-zip-status`);
+    if (statusEl) statusEl.textContent = '正在打包...';
+
+    try {
+      const zip = new JSZip();
+      const indices = [...state.selected].sort((a, b) => a - b);
+      let added = 0;
+
+      for (const idx of indices) {
+        const img = state.images[idx];
+        if (!img) continue;
+        const name = img.caption
+          ? `${img.caption}.${getExt(img.src)}`
+          : `image_${idx + 1}.${getExt(img.src)}`;
+        try {
+          const blob = await fetchImageAsBlob(img.src);
+          if (blob) { zip.file(name, blob); added++; }
+        } catch (e) {
+          console.warn('ZIP skip:', name, e);
+        }
+      }
+
+      if (added === 0) { alert('没有成功加入任何图片'); return; }
+
+      const zipBlob = await zip.generateAsync({
+        type: 'blob',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 3 }
+      });
+      const url = URL.createObjectURL(zipBlob);
+      chrome.runtime.sendMessage({ action: 'download', url, filename: `images_${Date.now()}.zip` });
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+      if (statusEl) statusEl.textContent = `打包完成 (${added} 张)`;
+      setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+    } catch (e) {
+      if (statusEl) statusEl.textContent = '打包失败';
+      console.error('ZIP error:', e);
+    }
   }
 
   // ========== 触发按钮 ==========
@@ -240,14 +317,19 @@
         </div>
         <div class="${GID}-panel-body">
           <div class="${GID}-stats">
-            检测到 <strong id="${GID}-count">0</strong> 张图片 |
+            检测到 <strong id="${GID}-count">0</strong> 张 |
             已选 <strong id="${GID}-sel-count">0</strong> 张
+            <span class="${GID}-zip-status" id="${GID}-zip-status"></span>
           </div>
           <div class="${GID}-actions">
             <button class="${GID}-btn ${GID}-btn-primary" id="${GID}-refresh">刷新</button>
             <button class="${GID}-btn ${GID}-btn-primary" id="${GID}-select-all">全选</button>
             <button class="${GID}-btn ${GID}-btn-primary" id="${GID}-clear">清空</button>
+          </div>
+          <div class="${GID}-actions">
             <button class="${GID}-btn ${GID}-btn-download" id="${GID}-batch-download">下载选中</button>
+            <button class="${GID}-btn ${GID}-btn-secondary" id="${GID}-batch-saveas">另存选中</button>
+            <button class="${GID}-btn ${GID}-btn-accent" id="${GID}-package-download">打包下载</button>
           </div>
           <div class="${GID}-gallery" id="${GID}-gallery"></div>
         </div>
@@ -256,8 +338,7 @@
       document.body.appendChild(panel);
 
       panel.querySelector(`.${GID}-panel-close`).addEventListener('click', e => { e.stopPropagation(); closePanel(); });
-      panel.querySelector(`#${GID}-refresh`).addEventListener('click', () => { scanAndInject([document.body]); });
-
+      panel.querySelector(`#${GID}-refresh`).addEventListener('click', () => scanAndInject([document.body]));
       panel.querySelector(`#${GID}-select-all`).addEventListener('click', () => {
         state.images.forEach((_, i) => state.selected.add(i));
         updatePanel();
@@ -266,7 +347,12 @@
         state.selected.clear();
         updatePanel();
       });
-      panel.querySelector(`#${GID}-batch-download`).addEventListener('click', batchDownload);
+      // 下载选中（自动保存到默认目录）
+      panel.querySelector(`#${GID}-batch-download`).addEventListener('click', () => batchDownload(false));
+      // 另存选中（逐个弹出保存对话框）
+      panel.querySelector(`#${GID}-batch-saveas`).addEventListener('click', () => batchDownload(true));
+      // 打包下载
+      panel.querySelector(`#${GID}-package-download`).addEventListener('click', packageDownload);
     }
 
     panel.classList.remove('collapsed');
@@ -301,29 +387,23 @@
       <div class="${GID}-gallery-item ${state.selected.has(idx) ? 'selected' : ''}" data-idx="${idx}">
         <div class="${GID}-gallery-check">✓</div>
         <img src="${img.thumb}" alt="${escapeHtml(img.caption || img.alt)}" loading="lazy">
-        ${img.caption ? `<div class="${GID}-gallery-caption" title="${escapeHtml(img.caption)}">${escapeHtml(img.caption)}</div>` : ''}
+        ${img.caption ? `<div class="${GID}-gallery-caption">${escapeHtml(img.caption)}</div>` : ''}
         <div class="${GID}-gallery-overlay">
-          <button class="${GID}-gallery-btn" data-action="preview" data-src="${img.src}">${ICON_PREVIEW}</button>
-          <button class="${GID}-gallery-btn" data-action="download" data-src="${img.src}" data-caption="${escapeHtml(img.caption)}">${ICON_DOWNLOAD}</button>
+          <button class="${GID}-gallery-btn" title="预览" data-action="preview" data-src="${img.src}">${ICON_PREVIEW}</button>
+          <button class="${GID}-gallery-btn" title="下载" data-action="download" data-src="${img.src}" data-caption="${escapeHtml(img.caption)}">${ICON_DOWNLOAD}</button>
         </div>
       </div>
     `).join('');
 
-    // 点击整张卡片 = 切换选中状态
     gallery.querySelectorAll(`.${GID}-gallery-item`).forEach(item => {
       item.addEventListener('click', e => {
-        if (e.target.closest(`.${GID}-gallery-btn`)) return; // 按钮不触发选中
+        if (e.target.closest(`.${GID}-gallery-btn`)) return;
         const idx = +item.dataset.idx;
-        if (state.selected.has(idx)) {
-          state.selected.delete(idx);
-        } else {
-          state.selected.add(idx);
-        }
+        state.selected.has(idx) ? state.selected.delete(idx) : state.selected.add(idx);
         updatePanel();
       });
     });
 
-    // 悬浮按钮：预览/下载单张
     gallery.querySelectorAll(`.${GID}-gallery-btn`).forEach(btn => {
       btn.addEventListener('click', e => {
         e.stopPropagation();
@@ -331,18 +411,18 @@
         const src = btn.dataset.src;
         const caption = btn.dataset.caption || '';
         if (action === 'preview') openPreview(src);
-        else if (action === 'download') downloadImage(src, caption, 0);
+        else if (action === 'download') downloadImage(src, caption, true);
       });
     });
   }
 
-  function batchDownload() {
+  function batchDownload(saveAs) {
     if (!state.selected.size) { alert('请先选择图片'); return; }
     let delay = 0;
     const indices = [...state.selected].sort((a, b) => a - b);
     indices.forEach(idx => {
       const img = state.images[idx];
-      if (img) downloadImage(img.src, img.caption, delay);
+      if (img) downloadImage(img.src, img.caption, saveAs);
       delay += 400;
     });
   }
@@ -358,7 +438,9 @@
     if (action === 'preview') {
       e.preventDefault(); e.stopPropagation(); openPreview(src);
     } else if (action === 'download') {
-      e.preventDefault(); e.stopPropagation(); downloadImage(src, caption, 0);
+      e.preventDefault(); e.stopPropagation(); downloadImage(src, caption, false);
+    } else if (action === 'saveas') {
+      e.preventDefault(); e.stopPropagation(); downloadImage(src, caption, true);
     } else if (action === 'close') {
       e.preventDefault(); closePreview();
     }
